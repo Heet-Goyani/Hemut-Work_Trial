@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Search, Filter, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, ChevronLeft, ChevronRight, Trash2, Download } from 'lucide-react';
 import { tripService } from '@/lib/api';
 import { Trip, TripCreate } from '@/types/trip';
 import CreateTripForm from '@/components/CreateTripForm';
@@ -14,6 +14,9 @@ export default function Home() {
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
   const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(false);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+  const [downloadMonth, setDownloadMonth] = useState(new Date().getMonth() + 1);
+  const [downloadYear, setDownloadYear] = useState(new Date().getFullYear());
 
   // Helper function to extract city from address
   const extractCity = (address: string): string => {
@@ -34,7 +37,6 @@ export default function Home() {
   const [total, setTotal] = useState(0);
   const [limit] = useState(10);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [loading, setLoading] = useState(false);
@@ -42,7 +44,7 @@ export default function Home() {
 
   useEffect(() => {
     fetchTrips();
-  }, [page, search, statusFilter, sortBy, sortOrder, advancedFilters]);
+  }, [page, search, sortBy, sortOrder, advancedFilters]);
 
   const fetchTrips = async () => {
     try {
@@ -51,7 +53,6 @@ export default function Home() {
         page,
         limit,
         search: search || undefined,
-        status: statusFilter || undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
       });
@@ -85,11 +86,6 @@ export default function Home() {
 
   const handleSearch = (value: string) => {
     setSearch(value);
-    setPage(1);
-  };
-
-  const handleStatusFilter = (status: string) => {
-    setStatusFilter(status);
     setPage(1);
   };
 
@@ -182,6 +178,93 @@ export default function Home() {
 
   const displayTrips = getFilteredTrips();
 
+  // Download trips as CSV
+  const handleDownloadTrips = async () => {
+    try {
+      // Fetch trips in batches (backend max limit is 100)
+      let allTrips: Trip[] = [];
+      let currentPage = 1;
+      let hasMore = true;
+
+      while (hasMore) {
+        const response = await tripService.getTrips({
+          page: currentPage,
+          limit: 100,
+        });
+        allTrips = [...allTrips, ...response.trips];
+        hasMore = currentPage < response.total_pages;
+        currentPage++;
+      }
+      
+      // Filter by selected month and year
+      const filteredTrips = allTrips.filter((trip: Trip) => {
+        const tripDate = new Date(trip.pickup_date);
+        return tripDate.getMonth() + 1 === downloadMonth && 
+               tripDate.getFullYear() === downloadYear;
+      });
+
+      if (filteredTrips.length === 0) {
+        alert(`No trips found for ${downloadMonth}/${downloadYear}`);
+        return;
+      }
+
+      // Generate CSV
+      const headers = [
+        'Trip ID',
+        'Customer',
+        'Pickup Location',
+        'Delivery Location',
+        'Pickup Date',
+        'Delivery Date',
+        'Status',
+        'Cargo Type',
+        'Weight (kg)',
+        'Vehicle Type',
+        'Quote Amount',
+        'Contact Person',
+        'Contact Phone',
+        'Contact Email'
+      ];
+
+      const csvRows = [
+        headers.join(','),
+        ...filteredTrips.map((trip: Trip) => [
+          trip.id,
+          `"${trip.customer?.name || 'N/A'}"`,
+          `"${trip.pickup_location}"`,
+          `"${trip.delivery_location}"`,
+          `"${new Date(trip.pickup_date).toLocaleString()}"`,
+          `"${new Date(trip.delivery_date).toLocaleString()}"`,
+          trip.status,
+          `"${trip.cargo_type}"`,
+          trip.weight,
+          trip.vehicle_type || 'N/A',
+          trip.quote_amount || 0,
+          `"${trip.contact_person || 'N/A'}"`,
+          `"${trip.contact_phone || 'N/A'}"`,
+          `"${trip.contact_email || 'N/A'}"`
+        ].join(','))
+      ];
+
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `trips_${downloadMonth}_${downloadYear}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setIsDownloadModalOpen(false);
+      alert(`Downloaded ${filteredTrips.length} trips for ${downloadMonth}/${downloadYear}`);
+    } catch (error) {
+      console.error('Failed to download trips:', error);
+      alert('Failed to download trips. Please try again.');
+    }
+  };
+
   // Tab state
   const [activeTab, setActiveTab] = useState<'inbound' | 'outbound' | 'mybids'>('inbound');
 
@@ -192,13 +275,22 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-bold text-gray-900">Fleet Management</h1>
-            <button
-              onClick={() => setIsCreateFormOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 rounded-lg hover:bg-yellow-500 transition-colors font-semibold"
-            >
-              <Plus size={20} />
-              Create Trip
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsDownloadModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                <Download size={20} />
+                Export
+              </button>
+              <button
+                onClick={() => setIsCreateFormOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 rounded-lg hover:bg-yellow-500 transition-colors font-semibold"
+              >
+                <Plus size={20} />
+                Create Trip
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -264,22 +356,6 @@ export default function Home() {
                   className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-            </div>
-
-            {/* Status Filter */}
-            <div className="flex items-center gap-2">
-              <Filter size={20} className="text-gray-400" />
-              <select
-                value={statusFilter}
-                onChange={(e) => handleStatusFilter(e.target.value)}
-                className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
             </div>
 
             {/* Sort */}
@@ -612,6 +688,71 @@ export default function Home() {
         onClose={() => setIsFilterPanelOpen(false)}
         onApplyFilters={handleApplyFilters}
       />
+
+      {/* Download Modal */}
+      {isDownloadModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <h2 className="text-xl font-bold mb-4">Export Trips</h2>
+            <p className="text-gray-600 mb-6">Select the month and year to export trip data as CSV.</p>
+            
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                <select
+                  value={downloadMonth}
+                  onChange={(e) => setDownloadMonth(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                >
+                  <option value={1}>January</option>
+                  <option value={2}>February</option>
+                  <option value={3}>March</option>
+                  <option value={4}>April</option>
+                  <option value={5}>May</option>
+                  <option value={6}>June</option>
+                  <option value={7}>July</option>
+                  <option value={8}>August</option>
+                  <option value={9}>September</option>
+                  <option value={10}>October</option>
+                  <option value={11}>November</option>
+                  <option value={12}>December</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <select
+                  value={downloadYear}
+                  onChange={(e) => setDownloadYear(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                >
+                  {[...Array(5)].map((_, i) => {
+                    const year = new Date().getFullYear() - 2 + i;
+                    return (
+                      <option key={year} value={year}>{year}</option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setIsDownloadModalOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDownloadTrips}
+                className="px-4 py-2 bg-yellow-400 text-gray-900 font-semibold rounded-md hover:bg-yellow-500 flex items-center gap-2"
+              >
+                <Download size={18} />
+                Download CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

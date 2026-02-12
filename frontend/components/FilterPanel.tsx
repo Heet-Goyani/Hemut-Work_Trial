@@ -280,7 +280,7 @@ export default function FilterPanel({ isOpen, onClose, onApplyFilters }: FilterP
           <div className="mb-6">
             <button
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
+              className="flex items-center gap-2 text-yellow-600 hover:text-yellow-700 text-sm font-medium"
             >
               <ChevronDown 
                 size={16} 

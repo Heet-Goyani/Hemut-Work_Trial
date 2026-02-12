@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Filter, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { tripService } from '@/lib/api';
 import { Trip, TripCreate } from '@/types/trip';
 import CreateTripForm from '@/components/CreateTripForm';
@@ -14,6 +14,19 @@ export default function Home() {
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
   const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(false);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+
+  // Helper function to extract city from address
+  const extractCity = (address: string): string => {
+    // Address format could be: "street, city, state zip" or just "city, state"
+    const parts = address.split(',').map(p => p.trim());
+    if (parts.length >= 2) {
+      // Return the second part (city) if format is "street, city, state zip"
+      // or first part if format is "city, state"
+      return parts.length >= 3 ? parts[1] : parts[0];
+    }
+    // Return first word or the whole string if no comma
+    return address.split(' ')[0] || address;
+  };
   
   // Pagination & filters
   const [page, setPage] = useState(1);
@@ -95,6 +108,23 @@ export default function Home() {
     setPage(1);
   };
 
+  const handleDeleteTrip = async (tripId: number) => {
+    if (!confirm(`Are you sure you want to delete Trip #${tripId}? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await tripService.deleteTrip(tripId);
+      fetchTrips();
+      if (selectedTrip?.id === tripId) {
+        setSelectedTrip(null);
+        setIsDetailPanelOpen(false);
+      }
+    } catch (error) {
+      console.error('Failed to delete trip:', error);
+      alert('Failed to delete trip. Please try again.');
+    }
+  };
+
   // Apply advanced filters on frontend
   const getFilteredTrips = () => {
     let filtered = [...trips];
@@ -152,6 +182,9 @@ export default function Home() {
 
   const displayTrips = getFilteredTrips();
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'inbound' | 'outbound' | 'mybids'>('inbound');
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -161,7 +194,7 @@ export default function Home() {
             <h1 className="text-2xl font-bold text-gray-900">Fleet Management</h1>
             <button
               onClick={() => setIsCreateFormOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 rounded-lg hover:bg-yellow-500 transition-colors font-semibold"
             >
               <Plus size={20} />
               Create Trip
@@ -170,8 +203,52 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Main Tabs */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex gap-0">
+            <button
+              onClick={() => setActiveTab('inbound')}
+              className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === 'inbound'
+                  ? 'border-yellow-400 text-yellow-600 bg-yellow-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Inbound Loads
+              <span className="ml-2 px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-600">
+                {total}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('outbound')}
+              className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === 'outbound'
+                  ? 'border-yellow-400 text-yellow-600 bg-yellow-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Outbound Loads
+            </button>
+            <button
+              onClick={() => setActiveTab('mybids')}
+              className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === 'mybids'
+                  ? 'border-yellow-400 text-yellow-600 bg-yellow-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              My Bids
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Show content based on active tab */}
+        {activeTab === 'inbound' ? (
+          <>
         {/* Search and Filter Bar */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <div className="flex flex-wrap gap-4">
@@ -227,7 +304,7 @@ export default function Home() {
             {/* Advanced Filter Button */}
             <button
               onClick={() => setIsFilterPanelOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-400 text-gray-900 rounded-lg hover:bg-yellow-500 transition-colors font-semibold"
             >
               <Filter size={20} />
               Filters
@@ -245,7 +322,7 @@ export default function Home() {
             <p className="text-gray-500 mb-4">No trips found</p>
             <button
               onClick={() => setIsCreateFormOpen(true)}
-              className="text-blue-600 hover:text-blue-700 font-medium"
+              className="text-yellow-600 hover:text-yellow-700 font-medium"
             >
               Create your first trip
             </button>
@@ -255,7 +332,7 @@ export default function Home() {
             <p className="text-gray-500 mb-4">No trips match your filters</p>
             <button
               onClick={() => setAdvancedFilters({})}
-              className="text-blue-600 hover:text-blue-700 font-medium"
+              className="text-yellow-600 hover:text-yellow-700 font-medium"
             >
               Clear filters
             </button>
@@ -299,8 +376,11 @@ export default function Home() {
                     >
                       {/* Locations */}
                       <div className="flex items-center gap-3">
-                        <div>
+                        <div className="max-w-[200px]">
                           <div className="text-sm font-semibold text-gray-900">
+                            {extractCity(trip.pickup_location)}
+                          </div>
+                          <div className="text-xs text-gray-400 truncate" title={trip.pickup_location}>
                             {trip.pickup_location}
                           </div>
                           <div className="text-xs text-gray-500">
@@ -316,8 +396,11 @@ export default function Home() {
                             <path d="M2 8h12M10 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                         </div>
-                        <div>
+                        <div className="max-w-[200px]">
                           <div className="text-sm font-semibold text-gray-900">
+                            {extractCity(trip.delivery_location)}
+                          </div>
+                          <div className="text-xs text-gray-400 truncate" title={trip.delivery_location}>
                             {trip.delivery_location}
                           </div>
                           <div className="text-xs text-gray-500">
@@ -388,6 +471,16 @@ export default function Home() {
                       >
                         Bid
                       </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTrip(trip.id);
+                        }}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="Delete Trip"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -430,7 +523,7 @@ export default function Home() {
                           onClick={() => setPage(pageNum)}
                           className={`px-3 py-2 rounded-lg ${
                             page === pageNum
-                              ? 'bg-blue-600 text-white'
+                              ? 'bg-yellow-400 text-gray-900 font-semibold'
                               : 'border hover:bg-gray-50'
                           }`}
                         >
@@ -451,6 +544,28 @@ export default function Home() {
               </div>
             </div>
           </>
+        )}
+          </>
+        ) : activeTab === 'outbound' ? (
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <div className="text-gray-400 mb-4">
+              <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">Outbound Loads</h3>
+            <p className="text-gray-500">Outbound loads management coming soon</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <div className="text-gray-400 mb-4">
+              <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">My Bids</h3>
+            <p className="text-gray-500">Your bid history and active bids coming soon</p>
+          </div>
         )}
       </main>
 

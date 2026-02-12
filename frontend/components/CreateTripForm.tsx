@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
-import { TripCreate, Stop, Customer } from '@/types/trip';
+import { X, Plus, Trash2 } from 'lucide-react';
+import { TripCreate, Customer } from '@/types/trip';
 import { customerService } from '@/lib/api';
 
 interface CreateTripFormProps {
@@ -13,46 +13,68 @@ interface CreateTripFormProps {
 
 type TabType = 'order_details' | 'stops' | 'shipment' | 'reference' | 'notes';
 
+interface StopData {
+  locationName: string;
+  locationId: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  arrivalEarly: string;
+  arrivalLate: string;
+  driverLoad: string;
+  contactName: string;
+  contactNumber: string;
+  email: string;
+  stopType: 'pickup' | 'delivery' | 'stop';
+}
+
+const emptyStop = (type: 'pickup' | 'delivery' | 'stop'): StopData => ({
+  locationName: '',
+  locationId: '',
+  address: '',
+  city: '',
+  state: '',
+  zipCode: '',
+  arrivalEarly: '',
+  arrivalLate: '',
+  driverLoad: '',
+  contactName: '',
+  contactNumber: '',
+  email: '',
+  stopType: type,
+});
+
 export default function CreateTripForm({ isOpen, onClose, onSubmit }: CreateTripFormProps) {
   const [activeTab, setActiveTab] = useState<TabType>('order_details');
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<number>(0);
   
-  // Form state - flattened
-  const [pickupLocation, setPickupLocation] = useState('');
-  const [deliveryLocation, setDeliveryLocation] = useState('');
-  const [pickupDate, setPickupDate] = useState('');
-  const [deliveryDate, setDeliveryDate] = useState('');
-  const [cargoType, setCargoType] = useState('');
-  const [weight, setWeight] = useState(0);
-  const [dimensions, setDimensions] = useState('');
-  const [vehicleType, setVehicleType] = useState('');
+  // Order Details
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number>(0);
+  const [equipmentType, setEquipmentType] = useState('');
   const [contactPerson, setContactPerson] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   
-  const [stops, setStops] = useState<Stop[]>([{
-    location: '',
-    stop_type: 'pickup',
-    scheduled_time: '',
-    contact_person: '',
-    contact_phone: '',
-    sequence: 1,
-  }]);
+  // Stops
+  const [pickup, setPickup] = useState<StopData>(emptyStop('pickup'));
+  const [intermediateStops, setIntermediateStops] = useState<StopData[]>([]);
+  const [destination, setDestination] = useState<StopData>(emptyStop('delivery'));
 
+  // Shipment
+  const [weightLbs, setWeightLbs] = useState<number>(0);
+  const [miles, setMiles] = useState<number>(0);
+  const [rate, setRate] = useState<number>(0);
+  const [commodity, setCommodity] = useState('');
+
+  // Reference
+  const [orderId, setOrderId] = useState('');
   const [billOfLading, setBillOfLading] = useState('');
-  const [containerNumber, setContainerNumber] = useState('');
-  const [sealNumber, setSealNumber] = useState('');
-  const [carrier, setCarrier] = useState('');
+  const [shipmentId, setShipmentId] = useState('');
 
-  const [referenceNumber, setReferenceNumber] = useState('');
-  const [poNumber, setPoNumber] = useState('');
-  const [customerReference, setCustomerReference] = useState('');
+  // Notes
+  const [notes, setNotes] = useState('');
 
-  const [specialInstructions, setSpecialInstructions] = useState('');
-  const [internalNotes, setInternalNotes] = useState('');
-
-  // Load customers on mount
   useEffect(() => {
     if (isOpen) {
       loadCustomers();
@@ -79,18 +101,12 @@ export default function CreateTripForm({ isOpen, onClose, onSubmit }: CreateTrip
     { id: 'notes', label: 'Notes' },
   ];
 
-  const handleNext = () => {
-    const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
-    if (currentIndex < tabs.length - 1) {
-      setActiveTab(tabs[currentIndex + 1].id as TabType);
-    }
+  const addIntermediateStop = () => {
+    setIntermediateStops([...intermediateStops, emptyStop('stop')]);
   };
 
-  const handlePrevious = () => {
-    const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
-    if (currentIndex > 0) {
-      setActiveTab(tabs[currentIndex - 1].id as TabType);
-    }
+  const removeIntermediateStop = (index: number) => {
+    setIntermediateStops(intermediateStops.filter((_, i) => i !== index));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -100,85 +116,232 @@ export default function CreateTripForm({ isOpen, onClose, onSubmit }: CreateTrip
       alert('Please select a customer');
       return;
     }
-    
+
+    // Build location strings
+    const pickupLocation = `${pickup.address}, ${pickup.city}, ${pickup.state} ${pickup.zipCode}`;
+    const deliveryLocation = `${destination.address}, ${destination.city}, ${destination.state} ${destination.zipCode}`;
+
+    // Build stops array
+    const allStops = [
+      {
+        location: pickupLocation,
+        stop_type: 'pickup',
+        scheduled_time: pickup.arrivalEarly || new Date().toISOString(),
+        contact_person: pickup.contactName,
+        contact_phone: pickup.contactNumber,
+        sequence: 1,
+      },
+      ...intermediateStops.map((stop, index) => ({
+        location: `${stop.address}, ${stop.city}, ${stop.state} ${stop.zipCode}`,
+        stop_type: stop.stopType === 'pickup' ? 'pickup' : 'delivery',
+        scheduled_time: stop.arrivalEarly || new Date().toISOString(),
+        contact_person: stop.contactName,
+        contact_phone: stop.contactNumber,
+        sequence: index + 2,
+      })),
+      {
+        location: deliveryLocation,
+        stop_type: 'delivery',
+        scheduled_time: destination.arrivalEarly || new Date().toISOString(),
+        contact_person: destination.contactName,
+        contact_phone: destination.contactNumber,
+        sequence: intermediateStops.length + 2,
+      },
+    ];
+
     const tripData: TripCreate = {
       customer_id: selectedCustomerId,
       pickup_location: pickupLocation,
       delivery_location: deliveryLocation,
-      pickup_date: pickupDate,
-      delivery_date: deliveryDate,
-      cargo_type: cargoType,
-      weight: weight,
-      dimensions: dimensions || undefined,
-      vehicle_type: vehicleType || undefined,
+      pickup_date: pickup.arrivalEarly || new Date().toISOString(),
+      delivery_date: destination.arrivalEarly || new Date().toISOString(),
+      cargo_type: commodity || 'General',
+      weight: weightLbs || 1000,
+      vehicle_type: equipmentType || undefined,
       contact_person: contactPerson || undefined,
       contact_phone: contactPhone || undefined,
       contact_email: contactEmail || undefined,
       bill_of_lading: billOfLading || undefined,
-      container_number: containerNumber || undefined,
-      seal_number: sealNumber || undefined,
-      carrier: carrier || undefined,
-      reference_number: referenceNumber || undefined,
-      po_number: poNumber || undefined,
-      customer_reference: customerReference || undefined,
-      special_instructions: specialInstructions || undefined,
-      internal_notes: internalNotes || undefined,
+      reference_number: orderId || undefined,
+      internal_notes: notes || undefined,
       status: 'pending',
-      stops: stops.map((stop, index) => ({
-        ...stop,
-        sequence: index + 1,
-      })),
+      stops: allStops,
     };
+    
     onSubmit(tripData);
     resetForm();
   };
 
   const resetForm = () => {
-    setPickupLocation('');
-    setDeliveryLocation('');
-    setPickupDate('');
-    setDeliveryDate('');
-    setCargoType('');
-    setWeight(0);
-    setDimensions('');
-    setVehicleType('');
+    setSelectedCustomerId(0);
+    setEquipmentType('');
     setContactPerson('');
     setContactPhone('');
     setContactEmail('');
-    setStops([{
-      location: '',
-      stop_type: 'pickup',
-      scheduled_time: '',
-      contact_person: '',
-      contact_phone: '',
-      sequence: 1,
-    }]);
+    setPickup(emptyStop('pickup'));
+    setIntermediateStops([]);
+    setDestination(emptyStop('delivery'));
+    setWeightLbs(0);
+    setMiles(0);
+    setRate(0);
+    setCommodity('');
+    setOrderId('');
     setBillOfLading('');
-    setContainerNumber('');
-    setSealNumber('');
-    setCarrier('');
-    setReferenceNumber('');
-    setPoNumber('');
-    setCustomerReference('');
-    setSpecialInstructions('');
-    setInternalNotes('');
+    setShipmentId('');
+    setNotes('');
     setActiveTab('order_details');
   };
 
-  const addStop = () => {
-    setStops([...stops, {
-      location: '',
-      stop_type: 'delivery',
-      scheduled_time: '',
-      contact_person: '',
-      contact_phone: '',
-      sequence: stops.length + 1,
-    }]);
-  };
-
-  const removeStop = (index: number) => {
-    setStops(stops.filter((_, i) => i !== index));
-  };
+  const renderStopForm = (
+    stop: StopData,
+    setStop: (stop: StopData) => void,
+    title: string,
+    showRemove?: boolean,
+    onRemove?: () => void
+  ) => (
+    <div className="border border-gray-200 rounded-lg p-5 bg-white">
+      <div className="flex justify-between items-center mb-4">
+        <h4 className="font-semibold text-gray-800">{title}</h4>
+        {showRemove && onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-red-500 hover:text-red-700 p-1"
+          >
+            <Trash2 size={18} />
+          </button>
+        )}
+      </div>
+      
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label>
+          <input
+            type="text"
+            value={stop.locationName}
+            onChange={(e) => setStop({ ...stop, locationName: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="e.g., ABC Warehouse"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Location ID</label>
+          <input
+            type="text"
+            value={stop.locationId}
+            onChange={(e) => setStop({ ...stop, locationId: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="e.g., LOC-001"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Address *</label>
+          <input
+            type="text"
+            required
+            value={stop.address}
+            onChange={(e) => setStop({ ...stop, address: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Street address"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+          <input
+            type="text"
+            required
+            value={stop.city}
+            onChange={(e) => setStop({ ...stop, city: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="City"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">State *</label>
+            <input
+              type="text"
+              required
+              value={stop.state}
+              onChange={(e) => setStop({ ...stop, state: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="State"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Zip Code *</label>
+            <input
+              type="text"
+              required
+              value={stop.zipCode}
+              onChange={(e) => setStop({ ...stop, zipCode: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Zip"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Schedule Arrival (Early) *</label>
+          <input
+            type="datetime-local"
+            required
+            value={stop.arrivalEarly}
+            onChange={(e) => setStop({ ...stop, arrivalEarly: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Schedule Arrival (Late)</label>
+          <input
+            type="datetime-local"
+            value={stop.arrivalLate}
+            onChange={(e) => setStop({ ...stop, arrivalLate: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Driver Load</label>
+          <input
+            type="text"
+            value={stop.driverLoad}
+            onChange={(e) => setStop({ ...stop, driverLoad: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="e.g., Full Truckload, Partial"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
+          <input
+            type="text"
+            value={stop.contactName}
+            onChange={(e) => setStop({ ...stop, contactName: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Contact person"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
+          <input
+            type="tel"
+            value={stop.contactNumber}
+            onChange={(e) => setStop({ ...stop, contactNumber: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="+1-555-0123"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input
+            type="email"
+            value={stop.email}
+            onChange={(e) => setStop({ ...stop, email: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="contact@example.com"
+          />
+        </div>
+      </div>
+    </div>
+  );
 
   if (!isOpen) return null;
 
@@ -203,7 +366,7 @@ export default function CreateTripForm({ isOpen, onClose, onSubmit }: CreateTrip
                 onClick={() => setActiveTab(tab.id as TabType)}
                 className={`w-full text-left px-4 py-3 rounded-md mb-2 transition-colors ${
                   activeTab === tab.id
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-yellow-400 text-gray-900'
                     : 'hover:bg-gray-200 text-gray-700'
                 }`}
               >
@@ -217,357 +380,253 @@ export default function CreateTripForm({ isOpen, onClose, onSubmit }: CreateTrip
             <form onSubmit={handleSubmit}>
               {/* Order Details Tab */}
               {activeTab === 'order_details' && (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <h3 className="text-xl font-semibold mb-4">Order Details</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <label className="block text-sm font-medium mb-1">Customer *</label>
-                      <select
-                        required
-                        value={selectedCustomerId}
-                        onChange={(e) => setSelectedCustomerId(parseInt(e.target.value))}
-                        className="w-full px-3 py-2 border rounded-md"
-                      >
-                        <option value={0}>Select a customer</option>
-                        {customers.map((customer) => (
-                          <option key={customer.id} value={customer.id}>
-                            {customer.name} ({customer.email})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Pickup Location *</label>
-                      <input
-                        type="text"
-                        required
-                        value={pickupLocation}
-                        onChange={(e) => setPickupLocation(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="Enter pickup location"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Delivery Location *</label>
-                      <input
-                        type="text"
-                        required
-                        value={deliveryLocation}
-                        onChange={(e) => setDeliveryLocation(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="Enter delivery location"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Pickup Date *</label>
-                      <input
-                        type="datetime-local"
-                        required
-                        value={pickupDate}
-                        onChange={(e) => setPickupDate(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Delivery Date *</label>
-                      <input
-                        type="datetime-local"
-                        required
-                        value={deliveryDate}
-                        onChange={(e) => setDeliveryDate(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Cargo Type *</label>
-                      <input
-                        type="text"
-                        required
-                        value={cargoType}
-                        onChange={(e) => setCargoType(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="e.g., Electronics, Food"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Weight (kg) *</label>
-                      <input
-                        type="number"
-                        required
-                        value={weight}
-                        onChange={(e) => setWeight(parseFloat(e.target.value))}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-sm font-medium mb-1">Dimensions (LxWxH)</label>
-                      <input
-                        type="text"
-                        value={dimensions}
-                        onChange={(e) => setDimensions(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="e.g., 100x50x30 cm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Vehicle Type</label>
-                      <select
-                        value={vehicleType}
-                        onChange={(e) => setVehicleType(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      >
-                        <option value="">Select vehicle type</option>
-                        <option value="Dry Van">Dry Van</option>
-                        <option value="Flatbed">Flatbed</option>
-                        <option value="Refrigerated">Refrigerated (Reefer)</option>
-                        <option value="Step Deck">Step Deck</option>
-                        <option value="Box Truck">Box Truck</option>
-                        <option value="Tanker">Tanker</option>
-                        <option value="Lowboy">Lowboy</option>
-                        <option value="Conestoga">Conestoga</option>
-                        <option value="Auto Carrier">Auto Carrier</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Contact Person</label>
-                      <input
-                        type="text"
-                        value={contactPerson}
-                        onChange={(e) => setContactPerson(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="Contact name"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Contact Phone</label>
-                      <input
-                        type="tel"
-                        value={contactPhone}
-                        onChange={(e) => setContactPhone(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="+1-555-0123"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Contact Email</label>
-                      <input
-                        type="email"
-                        value={contactEmail}
-                        onChange={(e) => setContactEmail(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                        placeholder="contact@example.com"
-                      />
-                    </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
+                    <select
+                      required
+                      value={selectedCustomerId}
+                      onChange={(e) => setSelectedCustomerId(parseInt(e.target.value))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value={0}>Select a customer</option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Equipment Type *</label>
+                    <select
+                      required
+                      value={equipmentType}
+                      onChange={(e) => setEquipmentType(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select equipment type</option>
+                      <option value="Dry Van">Dry Van</option>
+                      <option value="Flatbed">Flatbed</option>
+                      <option value="Refrigerated">Refrigerated (Reefer)</option>
+                      <option value="Step Deck">Step Deck</option>
+                      <option value="Box Truck">Box Truck</option>
+                      <option value="Tanker">Tanker</option>
+                      <option value="Lowboy">Lowboy</option>
+                      <option value="Conestoga">Conestoga</option>
+                      <option value="Power Only">Power Only</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Person</label>
+                    <input
+                      type="text"
+                      value={contactPerson}
+                      onChange={(e) => setContactPerson(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Contact name"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
+                    <input
+                      type="tel"
+                      value={contactPhone}
+                      onChange={(e) => setContactPhone(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="+1-555-0123"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="contact@example.com"
+                    />
                   </div>
                 </div>
               )}
 
               {/* Stops Tab */}
               {activeTab === 'stops' && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-semibold">Stops</h3>
+                <div className="space-y-6">
+                  <h3 className="text-xl font-semibold mb-4">Stops</h3>
+                  
+                  {/* Stop 1 - Pickup (Always First) */}
+                  {renderStopForm(
+                    pickup,
+                    setPickup,
+                    'Stop 1 (Pickup)'
+                  )}
+
+                  {/* Intermediate Stops */}
+                  {intermediateStops.map((stop, index) => (
+                    <div key={index}>
+                      {renderStopForm(
+                        stop,
+                        (updatedStop) => {
+                          const newStops = [...intermediateStops];
+                          newStops[index] = updatedStop;
+                          setIntermediateStops(newStops);
+                        },
+                        `Stop ${index + 2}`,
+                        true,
+                        () => removeIntermediateStop(index)
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Add Stop Button */}
+                  <div className="flex justify-center">
                     <button
                       type="button"
-                      onClick={addStop}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      onClick={addIntermediateStop}
+                      className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-yellow-400 text-yellow-600 rounded-lg hover:bg-yellow-50 transition-colors"
                     >
+                      <Plus size={18} />
                       Add Stop
                     </button>
                   </div>
-                  {stops.map((stop, index) => (
-                    <div key={index} className="border p-4 rounded-md relative">
-                      {stops.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeStop(index)}
-                          className="absolute top-2 right-2 text-red-600 hover:text-red-800"
-                        >
-                          <X size={20} />
-                        </button>
-                      )}
-                      <h4 className="font-medium mb-3">Stop {index + 1}</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Location *</label>
-                          <input
-                            type="text"
-                            required
-                            value={stop.location}
-                            onChange={(e) => {
-                              const newStops = [...stops];
-                              newStops[index].location = e.target.value;
-                              setStops(newStops);
-                            }}
-                            className="w-full px-3 py-2 border rounded-md"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Type *</label>
-                          <select
-                            required
-                            value={stop.stop_type}
-                            onChange={(e) => {
-                              const newStops = [...stops];
-                              newStops[index].stop_type = e.target.value;
-                              setStops(newStops);
-                            }}
-                            className="w-full px-3 py-2 border rounded-md"
-                          >
-                            <option value="pickup">Pickup</option>
-                            <option value="delivery">Delivery</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Scheduled Time *</label>
-                          <input
-                            type="datetime-local"
-                            required
-                            value={stop.scheduled_time}
-                            onChange={(e) => {
-                              const newStops = [...stops];
-                              newStops[index].scheduled_time = e.target.value;
-                              setStops(newStops);
-                            }}
-                            className="w-full px-3 py-2 border rounded-md"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Contact Person</label>
-                          <input
-                            type="text"
-                            value={stop.contact_person}
-                            onChange={(e) => {
-                              const newStops = [...stops];
-                              newStops[index].contact_person = e.target.value;
-                              setStops(newStops);
-                            }}
-                            className="w-full px-3 py-2 border rounded-md"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-sm font-medium mb-1">Contact Phone</label>
-                          <input
-                            type="tel"
-                            value={stop.contact_phone}
-                            onChange={(e) => {
-                              const newStops = [...stops];
-                              newStops[index].contact_phone = e.target.value;
-                              setStops(newStops);
-                            }}
-                            className="w-full px-3 py-2 border rounded-md"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+
+                  {/* Destination (Always Last) */}
+                  {renderStopForm(
+                    destination,
+                    setDestination,
+                    `Destination (Stop ${intermediateStops.length + 2})`
+                  )}
                 </div>
               )}
 
               {/* Shipment Tab */}
               {activeTab === 'shipment' && (
-                <div className="space-y-4">
-                  <h3 className="text-xl font-semibold mb-4">Shipment Information</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Bill of Lading</label>
-                      <input
-                        type="text"
-                        value={billOfLading}
-                        onChange={(e) => setBillOfLading(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Container Number</label>
-                      <input
-                        type="text"
-                        value={containerNumber}
-                        onChange={(e) => setContainerNumber(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Seal Number</label>
-                      <input
-                        type="text"
-                        value={sealNumber}
-                        onChange={(e) => setSealNumber(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Carrier</label>
-                      <input
-                        type="text"
-                        value={carrier}
-                        onChange={(e) => setCarrier(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
+                <div className="space-y-5">
+                  <h3 className="text-xl font-semibold mb-4">Shipment Details</h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Weight (LBS) *</label>
+                    <input
+                      type="number"
+                      required
+                      value={weightLbs}
+                      onChange={(e) => setWeightLbs(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter weight in pounds"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Miles</label>
+                    <input
+                      type="number"
+                      value={miles}
+                      onChange={(e) => setMiles(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter distance in miles"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Rate ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={rate}
+                      onChange={(e) => setRate(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter rate in dollars"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Commodity *</label>
+                    <select
+                      required
+                      value={commodity}
+                      onChange={(e) => setCommodity(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select commodity type</option>
+                      <option value="General Freight">General Freight</option>
+                      <option value="Electronics">Electronics</option>
+                      <option value="Food & Beverage">Food & Beverage</option>
+                      <option value="Pharmaceuticals">Pharmaceuticals</option>
+                      <option value="Automotive Parts">Automotive Parts</option>
+                      <option value="Chemicals">Chemicals</option>
+                      <option value="Building Materials">Building Materials</option>
+                      <option value="Machinery">Machinery</option>
+                      <option value="Textiles">Textiles</option>
+                      <option value="Paper Products">Paper Products</option>
+                      <option value="Hazardous Materials">Hazardous Materials</option>
+                      <option value="Refrigerated Goods">Refrigerated Goods</option>
+                      <option value="Dry Goods">Dry Goods</option>
+                      <option value="Other">Other</option>
+                    </select>
                   </div>
                 </div>
               )}
 
               {/* Reference Tab */}
               {activeTab === 'reference' && (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <h3 className="text-xl font-semibold mb-4">Reference Information</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Reference Number</label>
-                      <input
-                        type="text"
-                        value={referenceNumber}
-                        onChange={(e) => setReferenceNumber(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">PO Number</label>
-                      <input
-                        type="text"
-                        value={poNumber}
-                        onChange={(e) => setPoNumber(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-sm font-medium mb-1">Customer Reference</label>
-                      <input
-                        type="text"
-                        value={customerReference}
-                        onChange={(e) => setCustomerReference(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md"
-                      />
-                    </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Order ID</label>
+                    <input
+                      type="text"
+                      value={orderId}
+                      onChange={(e) => setOrderId(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter order ID"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bill of Lading</label>
+                    <input
+                      type="text"
+                      value={billOfLading}
+                      onChange={(e) => setBillOfLading(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter bill of lading number"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Shipment ID</label>
+                    <input
+                      type="text"
+                      value={shipmentId}
+                      onChange={(e) => setShipmentId(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter shipment ID"
+                    />
                   </div>
                 </div>
               )}
 
               {/* Notes Tab */}
               {activeTab === 'notes' && (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <h3 className="text-xl font-semibold mb-4">Notes</h3>
+                  
                   <div>
-                    <label className="block text-sm font-medium mb-1">Special Instructions</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                     <textarea
-                      value={specialInstructions}
-                      onChange={(e) => setSpecialInstructions(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-md"
-                      rows={4}
-                      placeholder="Any special handling instructions..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Internal Notes</label>
-                    <textarea
-                      value={internalNotes}
-                      onChange={(e) => setInternalNotes(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-md"
-                      rows={4}
-                      placeholder="Internal notes (not visible to customer)..."
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      rows={6}
+                      placeholder="Enter any additional notes or special instructions..."
                     />
                   </div>
                 </div>
@@ -580,18 +639,29 @@ export default function CreateTripForm({ isOpen, onClose, onSubmit }: CreateTrip
         <div className="flex justify-between items-center p-6 border-t">
           <button
             type="button"
-            onClick={handlePrevious}
-            disabled={activeTab === 'order_details'}
-            className="px-4 py-2 border rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => {
+              const currentIndex = tabs.findIndex(t => t.id === activeTab);
+              if (currentIndex > 0) {
+                setActiveTab(tabs[currentIndex - 1].id as TabType);
+              } else {
+                onClose();
+              }
+            }}
+            className="px-4 py-2 border rounded-md hover:bg-gray-50"
           >
-            Previous
+            {activeTab === 'order_details' ? 'Cancel' : 'Previous'}
           </button>
           <div className="flex gap-2">
             {activeTab !== 'notes' ? (
               <button
                 type="button"
-                onClick={handleNext}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                onClick={() => {
+                  const currentIndex = tabs.findIndex(t => t.id === activeTab);
+                  if (currentIndex < tabs.length - 1) {
+                    setActiveTab(tabs[currentIndex + 1].id as TabType);
+                  }
+                }}
+                className="px-6 py-2 bg-yellow-400 text-gray-900 rounded-md hover:bg-yellow-500 font-semibold"
               >
                 Next
               </button>
